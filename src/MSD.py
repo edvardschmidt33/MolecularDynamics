@@ -4,8 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import json
-from plots import file_ret
-from pathlib import Path
 from tqdm.auto import tqdm
 
 
@@ -33,7 +31,6 @@ if __name__ == '__main__':
 
 
     args = parser.parse_args()
-    temp001, C001, t001, tau = file_ret(0.01)
     Temps = np.linspace(100, 1000, args.points)
     gamma = 0.01
     sigma = 3.304        # Å

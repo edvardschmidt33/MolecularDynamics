@@ -209,7 +209,6 @@ def potential(r, epsilon, sigma, derivative = False):
         return 48 * epsilon * ((sigma / r) ** 12 - 0.5 * (sigma / r) ** 6) / r
 
 
-
 def wrap_positions(pos, box):
     return pos % box
 

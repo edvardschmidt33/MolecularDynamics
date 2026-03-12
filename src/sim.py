@@ -270,35 +270,6 @@ def production_run(therm_pos, therm_vel, box, m, ts, temp, cutoff, damp, epsilon
     return pos, vel, f, disp_traj, temp_hist, epot_hist, ekin_hist
 
 
-
-# def auto_correlation(disp_traj, t_delay = 1000):
-
-
-#     nsteps, natoms, ndim = disp_traj.shape
-#     ncoords = natoms * ndim
-    
-
-#     t_delay = min(t_delay, nsteps)
-    
-#     C = np.zeros(t_delay, dtype=float)
-#     disp_flat = disp_traj.reshape(nsteps, ncoords)
-    
-#     for delay in tqdm(range(t_delay)):
-
-
-#         x1 = disp_flat[:nsteps-delay]
-#         x2 = disp_flat[delay:]
-#         numer_i = np.mean(x1 * x2, axis=0)
-#         denom_i = np.mean(x1*x1, axis = 0)
-
-#         valid = denom_i > 0.0
-#         if not np.any(valid):
-#             raise ValueError("All coordinate variances are zero.")
-
-#         C[delay] = np.mean(numer_i[valid] / denom_i[valid])
-    
-#     return C
-
 def auto_correlation(disp_traj, t_delay=1000):
     nsteps, natoms, ndim = disp_traj.shape
     t_delay = min(t_delay, nsteps)

@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import json
 import numpy as np
 from scipy.integrate import simpson
+from fit import file_ret_energy
 
 def file_ret(gamma, fast = False):
     if fast:
@@ -18,14 +19,6 @@ def file_ret(gamma, fast = False):
 
     return temp_hist, C, t, tau
 
-def correlation_time(C, dt):
-    # Find first zero crossing
-    zero_crossing = np.where(C <= 0)[0]
-    if len(zero_crossing) > 0:
-        cutoff = zero_crossing[0]
-    else:
-        cutoff = len(C)  # no zero crossing found, use full array
-    return simpson(C[:cutoff], dx=dt)
 
 if __name__ == '__main__':
 
@@ -39,10 +32,6 @@ if __name__ == '__main__':
     MSD_list = np.array(data["MSD"])
     Temps = np.array(data["Temps"])
 
-
-    # tau01 = correlation_time(C01,1)
-    # tau001 = correlation_time(C001,1)
-    # tau0001 = correlation_time(C0001,1)
 
     plt.plot(t01, C01, color = 'RoyalBlue', label = fr'$\gamma = 0.1$,  $\tau = {tau01:.3f}$')
     plt.plot(t001, C001, color = 'IndianRed', label = fr'$\gamma = 0.01$,  $\tau = {tau001:.3f}$')
