@@ -10,6 +10,8 @@ from scipy.integrate import simpson
 os.makedirs(f'./data', exist_ok=True)
 os.makedirs(f'./figs', exist_ok=True)
 
+k_B = 8.617333262e-5  # eV/K (Global Variable)
+
 ### Define Box-Muller ###
 @njit
 def box_muller_pair():
@@ -132,42 +134,79 @@ def init_velocity(pos, m, temp, seed = None):
 
 
 
-# Lennard-Jones potential 
+@njit
+def build_neighbor_list(pos, box, neighbor_cutoff):
+    """
+    Build a list of all pairs (i, j) with i < j whose minimum-image distance
+    is less than neighbor_cutoff, respecting periodic boundary conditions.
+
+    Use a cutoff slightly larger than the force cutoff (e.g. 12 Å vs 10 Å)
+    so the list stays valid as atoms vibrate around equilibrium.
+
+    Returns
+    -------
+    pairs_i, pairs_j : 1-D int64 arrays of equal length
+        Each element k gives one neighbor pair: atoms pairs_i[k] and pairs_j[k].
+    """
+    n = len(pos)
+    cutoff2 = neighbor_cutoff ** 2
+    max_pairs = n * (n - 1) // 2          # absolute upper bound
+    tmp_i = np.empty(max_pairs, dtype=np.int64)
+    tmp_j = np.empty(max_pairs, dtype=np.int64)
+    count = 0
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            r_ij = minimum_image(pos[i] - pos[j], box)
+            r2 = np.dot(r_ij, r_ij)
+            if r2 < cutoff2:
+                tmp_i[count] = i
+                tmp_j[count] = j
+                count += 1
+    return tmp_i[:count].copy(), tmp_j[:count].copy()
+
+
+@njit
+def compute_forces_nl(pos, box, epsilon, sigma, cutoff, pairs_i, pairs_j):
+    """
+    Compute LJ forces and potential energy using a prebuilt neighbor list.
+
+    Only iterates over the pairs stored in pairs_i/pairs_j (those within
+    neighbor_cutoff), then applies the actual force cutoff inside.
+    This replaces the O(N^2) double-loop with a loop over ~N * n_neighbors pairs.
+    """
+    forces = np.zeros_like(pos)
+    epot = 0.0
+    cutoff2 = cutoff ** 2
+    sigma2 = sigma ** 2
+
+    for k in range(len(pairs_i)):
+        i = pairs_i[k]
+        j = pairs_j[k]
+        r_ij = minimum_image(pos[i] - pos[j], box)
+        r2 = np.dot(r_ij, r_ij)
+
+        if 0.0 < r2 < cutoff2:
+            inv_r2 = 1.0 / r2
+            sr2 = sigma2 * inv_r2
+            sr6 = sr2 * sr2 * sr2
+            sr12 = sr6 * sr6
+
+            epot += 4.0 * epsilon * (sr12 - sr6)
+            pref = 24.0 * inv_r2 * epsilon * (2.0 * sr12 - sr6)
+            f_ij = pref * r_ij
+
+            forces[i] += f_ij
+            forces[j] -= f_ij
+
+    return forces, epot
+
+
+# Lennard-Jones potential
 def potential(r, epsilon, sigma, derivative = False):
     if not derivative:
         return 4*epsilon * ((sigma/r)**12 - (sigma/r)**6)
     else:
         return 48 * epsilon * ((sigma / r) ** 12 - 0.5 * (sigma / r) ** 6) / r
-
-@njit
-def compute_forces(pos, box, epsilon, sigma, cutoff):
-    n = len(pos)
-    forces = np.zeros_like(pos)
-    epot = 0.0
-    cutoff2 = cutoff**2 #compare squared distances isntead
-    sigma2 = sigma**2
-    for i in range(n-1):
-        for j in range(i + 1, n):
-            r_ij = minimum_image(pos[i] - pos[j], box)
-            r2 = np.dot(r_ij, r_ij)
-
-            if 0.0 < r2 < cutoff2:
-                inv_r2 = 1 / r2
-
-                sr2 = sigma2 * inv_r2      # (sigma/r)^2
-                sr6 = sr2 * sr2 * sr2      # (sigma/r)^6
-                sr12 = sr6 * sr6           # (sigma/r)^12
-
-
-                epot += 4.0 * epsilon * (sr12 - sr6)
-                pref = 24.0 * inv_r2 * epsilon * (2.0 * sr12 - sr6)
-                f_ij = pref * r_ij
-
-                # Implementing NIII-law of opposite forces.
-                forces[i] += f_ij
-                forces[j] -= f_ij
-
-    return forces, epot
 
 
 
@@ -176,12 +215,13 @@ def wrap_positions(pos, box):
 
 ### 2. Thermalization ###
 
-def langevin_verlet(init_pos, init_vel, box, m, ts, temp, cutoff, damp, epsilon, sigma, n_therm):
+def langevin_verlet(init_pos, init_vel, box, m, ts, temp, cutoff, damp, epsilon, sigma, n_therm,
+                    pairs_i, pairs_j):
     pos = init_pos.copy()
     vel = init_vel.copy()
     ts_2 = ts*0.5
     n_atoms = len(pos)
-    f, _ = compute_forces(pos, box, epsilon, sigma, cutoff)
+    f, _ = compute_forces_nl(pos, box, epsilon, sigma, cutoff, pairs_i, pairs_j)
 
     temp_hist = []
     epot_hist = []
@@ -204,7 +244,7 @@ def langevin_verlet(init_pos, init_vel, box, m, ts, temp, cutoff, damp, epsilon,
         pos = pos + vel1 * ts
         pos = wrap_positions(pos, box)
 
-        f2, epot = compute_forces(pos, box = box, epsilon=epsilon, sigma = sigma, cutoff = cutoff)
+        f2, epot = compute_forces_nl(pos, box, epsilon, sigma, cutoff, pairs_i, pairs_j)
         a2 = f2 / m
         vel2 = vel1 + a2*ts_2
         vel = c1 * vel2 + c2 * xi2
@@ -221,14 +261,15 @@ def langevin_verlet(init_pos, init_vel, box, m, ts, temp, cutoff, damp, epsilon,
 
 ### 3. Production run ###
 
-def production_run(therm_pos, therm_vel, box, m, ts, temp, cutoff, damp, epsilon, sigma, n_steps, q_st):
+def production_run(therm_pos, therm_vel, box, m, ts, temp, cutoff, damp, epsilon, sigma, n_steps, q_st,
+                   pairs_i, pairs_j):
     pos = therm_pos.copy()
     vel = therm_vel.copy()
     unwrapped_pos = therm_pos.copy()
 
     ts_2 = ts*0.5
     n_atoms = len(pos)
-    f, _ = compute_forces(pos, box, epsilon, sigma, cutoff)
+    f, _ = compute_forces_nl(pos, box, epsilon, sigma, cutoff, pairs_i, pairs_j)
 
     disp_traj = np.zeros((n_steps, n_atoms, 3))
     temp_hist = np.zeros(n_steps)
@@ -253,7 +294,7 @@ def production_run(therm_pos, therm_vel, box, m, ts, temp, cutoff, damp, epsilon
         unwrapped_pos = unwrapped_pos + vel1 * ts
         pos = wrap_positions(new_pos, box)
 
-        f2, epot = compute_forces(pos, box = box, epsilon=epsilon, sigma = sigma, cutoff = cutoff)
+        f2, epot = compute_forces_nl(pos, box, epsilon, sigma, cutoff, pairs_i, pairs_j)
         a2 = f2 / m
         vel2 = vel1 + a2*ts_2
         vel = c1 * vel2 + c2 * xi2
@@ -265,39 +306,8 @@ def production_run(therm_pos, therm_vel, box, m, ts, temp, cutoff, damp, epsilon
         epot_hist[step] = epot
         ekin_hist[step] = E_kin(m, vel)
 
-    
-    
     return pos, vel, f, disp_traj, temp_hist, epot_hist, ekin_hist
 
-
-
-# def auto_correlation(disp_traj, t_delay = 1000):
-
-
-#     nsteps, natoms, ndim = disp_traj.shape
-#     ncoords = natoms * ndim
-    
-
-#     t_delay = min(t_delay, nsteps)
-    
-#     C = np.zeros(t_delay, dtype=float)
-#     disp_flat = disp_traj.reshape(nsteps, ncoords)
-    
-#     for delay in tqdm(range(t_delay)):
-
-
-#         x1 = disp_flat[:nsteps-delay]
-#         x2 = disp_flat[delay:]
-#         numer_i = np.mean(x1 * x2, axis=0)
-#         denom_i = np.mean(x1*x1, axis = 0)
-
-#         valid = denom_i > 0.0
-#         if not np.any(valid):
-#             raise ValueError("All coordinate variances are zero.")
-
-#         C[delay] = np.mean(numer_i[valid] / denom_i[valid])
-    
-#     return C
 
 def auto_correlation(disp_traj, t_delay=1000):
     nsteps, natoms, ndim = disp_traj.shape
@@ -356,12 +366,12 @@ if __name__ == '__main__':
     
     u = 157.25 
     m = 103.6 * u
-    k_B = 8.617333262e-5  # eV/K
+
     T = 10000
     t_delay = 2000
 
     if gamma == 0.001:
-        thermalization = 2500
+        thermalization = 3000
     elif gamma == 0.01:
         thermalization = 2000
     else:
@@ -370,14 +380,33 @@ if __name__ == '__main__':
     pos, box = init_supercell(a)
     q_st = pos.copy()
 
-    vel = init_velocity(pos, m, Temp_target, seed=1)
-    
-    
+    # --- Build neighbor list once from equilibrium positions ---
+    # Use a neighbor cutoff slightly larger than the force cutoff (10 Å)
+    # so the list stays valid as atoms vibrate around equilibrium.
+    neighbor_cutoff = 12.0   # Å
+    print("Building neighbor list...")
+    pairs_i, pairs_j = build_neighbor_list(pos, box, neighbor_cutoff)
 
-    pos, vel, force, T_hist, U_hist, K_hist = langevin_verlet(pos, vel, box, m, 
-                                                              ts, Temp_target, cutoff, 
-                                                              gamma, epsilon, sigma, 
-                                                              thermalization)
+    # Cross-check: due to periodicity, all atoms should have the same number of neighbors
+    n_atoms_check = len(pos)
+    neighbor_count = np.zeros(n_atoms_check, dtype=int)
+    np.add.at(neighbor_count, pairs_i, 1)
+    np.add.at(neighbor_count, pairs_j, 1)
+    print(f"Neighbors per atom: min={neighbor_count.min()}, max={neighbor_count.max()}, "
+          f"mean={neighbor_count.mean():.1f}  (should all be equal)")
+    assert neighbor_count.min() == neighbor_count.max(), \
+        "Neighbor counts differ — check PBC in build_neighbor_list!"
+    print(f"Total neighbor pairs: {len(pairs_i)}  (vs {n_atoms_check*(n_atoms_check-1)//2} full pairs)\n")
+
+    vel = init_velocity(pos, m, Temp_target, seed=1)
+
+
+
+    pos, vel, force, T_hist, U_hist, K_hist = langevin_verlet(pos, vel, box, m,
+                                                              ts, Temp_target, cutoff,
+                                                              gamma, epsilon, sigma,
+                                                              thermalization,
+                                                              pairs_i, pairs_j)
 
     
 
@@ -401,7 +430,8 @@ if __name__ == '__main__':
     pos, vel, f, disp_traj, temp_hist, epot_hist, ekin_hist = production_run(pos, vel, box,
                                                              m, ts, Temp_target,
                                                              cutoff, gamma, epsilon,
-                                                             sigma, n_steps=T, q_st=q_st)
+                                                             sigma, n_steps=T, q_st=q_st,
+                                                             pairs_i=pairs_i, pairs_j=pairs_j)
 
 
     com_disp = disp_traj.mean(axis=1, keepdims=True)   # shape (nsteps, 1, 3)
@@ -428,11 +458,11 @@ if __name__ == '__main__':
 
 
     if args.io: 
-        with open(f'./data/therm_gamma{gamma}.json', 'w') as f:
+        with open(f'./data/therm_gamma{gamma}_fast.json', 'w') as f:
             json.dump(results_therm, f, indent=4)
             print('Thermalization results saved in JSON')
         
-        with open(f'./data/autocor_gamma{gamma}.json', 'w') as f:
+        with open(f'./data/autocor_gamma{gamma}_fast.json', 'w') as f:
             json.dump(results, f, indent=4)
             print('Auto Correlation Results saved in JSON')
 
@@ -444,7 +474,7 @@ if __name__ == '__main__':
         plt.ylabel("Temperature (K)")
         plt.title("Thermalization check")
         plt.tight_layout()
-        plt.savefig(f'./figs/thermalization_gamma{gamma}.png')
+        plt.savefig(f'./figs/thermalization_gamma{gamma}_fast.png')
         plt.show()
 
         plt.figure(figsize=(8, 4))
@@ -453,8 +483,5 @@ if __name__ == '__main__':
         plt.ylabel("Auto-Correlation (C(t))")
         plt.title(fr"Auto correlation with $\gamma = {gamma}$")
         plt.tight_layout()
-        plt.savefig(f'./figs/autocor_gamma{gamma}.png')
+        plt.savefig(f'./figs/autocor_gamma{gamma}_fast.png')
         plt.show()
-
-
-
