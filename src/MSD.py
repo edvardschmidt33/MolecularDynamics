@@ -28,9 +28,14 @@ if __name__ == '__main__':
     # # Optional numeric arguments
     parser.add_argument("--points", type=int, default=5,
                          help="Number of temperatures to run")
-
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Random-seed for simulation")
 
     args = parser.parse_args()
+    seed = args.seed
+
+    np.random.seed(seed)
+    
     Temps = np.linspace(100, 1000, args.points)
     gamma = 0.01
     sigma = 3.304        # Å
@@ -69,7 +74,7 @@ if __name__ == '__main__':
         
 
 
-        vel = init_velocity(pos, m, T, seed=1)
+        vel = init_velocity(pos, m, T, seed=seed)
         pos, vel, force, T_hist, U_hist, K_hist = langevin_verlet(pos, vel, box, m,
                                                               ts, T, cutoff,
                                                               gamma, epsilon, sigma,
@@ -105,7 +110,7 @@ if __name__ == '__main__':
     if args.io: 
         res = {'MSD': MSD_list.tolist(),
                'Temps': Temps.tolist()}
-        with open(f'./data/MSD_list.json', 'w') as f:
+        with open(f'./data/MSD_list{seed}.json', 'w') as f:
             json.dump(res, f, indent=4)
             print('MSD results saved in JSON')
     

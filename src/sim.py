@@ -10,7 +10,9 @@ from scipy.integrate import simpson
 os.makedirs(f'./data', exist_ok=True)
 os.makedirs(f'./figs', exist_ok=True)
 
+k_B = 8.617333262e-5  # eV/K (Global Variable)
 ### Define Box-Muller ###
+
 @njit
 def box_muller_pair():
     """

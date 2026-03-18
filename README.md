@@ -7,7 +7,7 @@ This creates the 5 step process modelled in this project.
 The auto-correlation $C(t)$ is solved for along with the integral $\tau = \int_0^\infty C(t) dt$ 
 for the correlation time. Thi is the used in order obtain the sampling frequency for the next task.
 That being estimating the Mean-Squared Displacement for a series of different temperatures ranging from 
-$100^\circ K \to 1000^\circ k$. Finally the lattice parameter $a$ was examined. The total energy of the system was recorded for a series of 
+$100^\circ K \to 1000^\circ K$. Finally the lattice parameter $a$ was examined. The total energy of the system was recorded for a series of 
 lattice parameters ranging from $0.9\sigma \to 1.3\sigma$. This was done at three fixed temperatures.
 
 ## Pipeline
@@ -32,3 +32,5 @@ python src/MSD.py --points 7 --plot --io
 ```
 Runs calculates the MSD for 7 temperatures equally divided across the range $100^\circ K \to 1000^\circ K$, showing the plot and savingf the results to JSON.
 
+
+Expermiments were conducted by running all three major tasks (varying $\gamma$, varying $T$, and varying $a$) a number of times and the averaging the results.

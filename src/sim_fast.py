@@ -108,7 +108,7 @@ def distance(pos, i, j, box):
     return np.sqrt(np.dot(diff, diff))
 
 def E_kin(m, v):
-    return 0.5 * m * np.sum(v**2)
+    return 0.5 * m * np.sum(v*v)
 
 # Check for thermalization
 def Temp(m, v):
@@ -117,8 +117,8 @@ def Temp(m, v):
 
 
 def init_velocity(pos, m, temp, seed = None):
-    if seed is not None:
-        np.random.seed(seed)
+    # if seed is not None:
+    #     np.random.seed(seed)
     
     n_atoms = len(pos)
 
@@ -129,7 +129,8 @@ def init_velocity(pos, m, temp, seed = None):
     v_m = v.mean(axis=0)
     v -= v_m
     E_kin_a = E_kin(m, v)
-    v *= np.sqrt(E_kin_b / E_kin_a)
+    if E_kin_a > 0.0:
+        v *= np.sqrt(E_kin_b / E_kin_a)
     return v
 
 
@@ -167,37 +168,37 @@ def build_neighbor_list(pos, box, neighbor_cutoff):
 
 @njit
 def compute_forces_nl(pos, box, epsilon, sigma, cutoff, pairs_i, pairs_j):
-    """
-    Compute LJ forces and potential energy using a prebuilt neighbor list.
 
-    Only iterates over the pairs stored in pairs_i/pairs_j (those within
-    neighbor_cutoff), then applies the actual force cutoff inside.
-    This replaces the O(N^2) double-loop with a loop over ~N * n_neighbors pairs.
-    """
     forces = np.zeros_like(pos)
     epot = 0.0
     cutoff2 = cutoff ** 2
     sigma2 = sigma ** 2
-
+ 
+    # Potential shift: U_shift = 4*eps*((sigma/rc)^12 - (sigma/rc)^6)
+    sr_c2 = sigma2 / cutoff2
+    sr_c6 = sr_c2 * sr_c2 * sr_c2
+    sr_c12 = sr_c6 * sr_c6
+    U_shift = 4.0 * epsilon * (sr_c12 - sr_c6)
+ 
     for k in range(len(pairs_i)):
         i = pairs_i[k]
         j = pairs_j[k]
         r_ij = minimum_image(pos[i] - pos[j], box)
         r2 = np.dot(r_ij, r_ij)
-
+ 
         if 0.0 < r2 < cutoff2:
             inv_r2 = 1.0 / r2
             sr2 = sigma2 * inv_r2
             sr6 = sr2 * sr2 * sr2
             sr12 = sr6 * sr6
-
-            epot += 4.0 * epsilon * (sr12 - sr6)
+ 
+            epot += 4.0 * epsilon * (sr12 - sr6) - U_shift
             pref = 24.0 * inv_r2 * epsilon * (2.0 * sr12 - sr6)
             f_ij = pref * r_ij
-
+ 
             forces[i] += f_ij
             forces[j] -= f_ij
-
+ 
     return forces, epot
 
 
@@ -347,13 +348,17 @@ if __name__ == '__main__':
                          help="Temperature")
     parser.add_argument("--y", type=float, default=0.01,
                         help="damping value")
+    parser.add_argument('--seed', type=int, default=0,
+                        help = 'Random-seed for simulation')
     # parser.add_argument("--sweeps", type=int, default=10000,
     #                     help="Number of MC sweeps")
     # parser.add_argument("--eq", type=int, default=1200,
     #                     help="Equilibration sweeps")
 
     args = parser.parse_args()
+    seed = args.seed
 
+    np.random.seed(seed)
 
     gamma = args.y
     sigma = 3.304        # Å
@@ -397,7 +402,7 @@ if __name__ == '__main__':
         "Neighbor counts differ — check PBC in build_neighbor_list!"
     print(f"Total neighbor pairs: {len(pairs_i)}  (vs {n_atoms_check*(n_atoms_check-1)//2} full pairs)\n")
 
-    vel = init_velocity(pos, m, Temp_target, seed=1)
+    vel = init_velocity(pos, m, Temp_target, seed=seed)
 
 
 
@@ -457,11 +462,11 @@ if __name__ == '__main__':
 
 
     if args.io: 
-        with open(f'./data/therm_gamma{gamma}_fast.json', 'w') as f:
+        with open(f'./data/therm_gamma{gamma}_fast{seed}.json', 'w') as f:
             json.dump(results_therm, f, indent=4)
             print('Thermalization results saved in JSON')
         
-        with open(f'./data/autocor_gamma{gamma}_fast.json', 'w') as f:
+        with open(f'./data/autocor_gamma{gamma}_fast{seed}.json', 'w') as f:
             json.dump(results, f, indent=4)
             print('Auto Correlation Results saved in JSON')
 

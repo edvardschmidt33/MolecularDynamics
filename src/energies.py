@@ -19,8 +19,13 @@ if __name__ == '__main__':
                          help="Stepsize for lattice parameter")
     parser.add_argument("--T", type=float, default=300.0,
                          help="System temperature")
+    parser.add_argument("--seed", type=int, default = 0,
+                        help= 'Random-seed for simulation')
 
     args = parser.parse_args()    
+    seed = args.seed
+    np.random.seed(seed)
+
     sigma = 3.304  
     h = args.step * sigma
     epsilon = 0.1136     # eV
@@ -64,7 +69,7 @@ if __name__ == '__main__':
         print(f"Total neighbor pairs: {len(pairs_i)}  (vs {n_atoms_check*(n_atoms_check-1)//2} full pairs)\n")
         
 
-        vel = init_velocity(pos, m, temp, seed=1)
+        vel = init_velocity(pos, m, temp, seed=seed)
 
         pos, vel, force, T_hist, U_hist, K_hist = langevin_verlet(pos, vel, box, m,
                                                               ts, temp, cutoff,
@@ -103,6 +108,6 @@ if __name__ == '__main__':
                 'a_list': a_list.tolist(),
                 'temp':temp}
         
-        with open(f'./data/energies_temp{temp}.json', 'w') as f:
+        with open(f'./data/energies_temp{temp}_{seed}.json', 'w') as f:
             json.dump(res, f, indent=4)
         print('Energy results saved in JSON')
