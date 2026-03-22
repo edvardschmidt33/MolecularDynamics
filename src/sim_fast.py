@@ -372,10 +372,10 @@ if __name__ == '__main__':
     m = 103.6 * u
 
     T = 10000
-    t_delay = 2000
+    t_delay = 4000
 
     if gamma == 0.001:
-        thermalization = 3000
+        thermalization = 4000
     elif gamma == 0.01:
         thermalization = 2000
     else:

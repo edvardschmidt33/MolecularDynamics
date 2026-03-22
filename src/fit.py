@@ -3,20 +3,47 @@ import matplotlib.pyplot as plt
 import json
 
 
-def file_ret_energy(temp=300.0, seed=0):
-    filename = f'./data/energies_temp{temp}_{seed}.json'
+# def file_ret_energy(temp=300.0, seed=0):
+#     filename = f'./data/energies_temp{temp}_{seed}.json'
 
-    with open(filename, "r") as f:
-        data = json.load(f)
+#     with open(filename, "r") as f:
+#         data = json.load(f)
 
-    energies = np.array(data["Energies"])
-    temp = np.array(data["temp"])
-    a_list = np.array(data["a_list"])
+#     energies = np.array(data["Energies"])
+#     temp = np.array(data["temp"])
+#     a_list = np.array(data["a_list"])
 
-    return energies, a_list, temp
+#     return energies, a_list, temp
+
+def file_ret_energy(temperature, n_seeds):
+    energies_list = []
+    a_list = None
+ 
+    for seed in range(n_seeds):
+        filename = f'./data/energies_temp{temperature}_{seed}.json'
+ 
+        try:
+            with open(filename, "r") as f:
+                data = json.load(f)
+ 
+            energies_list.append(np.array(data["Energies"]))
+            if a_list is None:
+                a_list = np.array(data["a_list"])
+ 
+        except FileNotFoundError:
+            print(f"Warning: File {filename} not found. Skipping seed {seed}.")
+            continue
+ 
+    # Average and compute std over all seeds
+    energies_array = np.array(energies_list)
+    energies_avg = np.mean(energies_array, axis=0)
+    energies_std = np.std(energies_array, axis=0)
+ 
+    return a_list, energies_avg, temperature, energies_std
 
 
-def local_curve_fit(temp=300.0, seed=0, n_neighbors=2):
+
+def local_curve_fit(temp=300.0, n_seeds=1, n_neighbors=2):
     """
     Fit a parabola locally around the discrete minimum.
 
@@ -24,7 +51,7 @@ def local_curve_fit(temp=300.0, seed=0, n_neighbors=2):
     use 2 points on each side of the minimum if available,
     i.e. typically 5 points total.
     """
-    energies, a_list, temp = file_ret_energy(temp, seed)
+    a_list, energies, temp, energies_std = file_ret_energy(temp, n_seeds=n_seeds)
 
     # 1. find discrete minimum
     i_min = np.argmin(energies)
@@ -74,11 +101,11 @@ if __name__ == '__main__':
 
     sigma = 3.304
 
-    fit50 = local_curve_fit(50.0)
-    fit300 = local_curve_fit(300.0)
-    fit1000 = local_curve_fit(1000.0)
-    fit150 = local_curve_fit(150.0)
-    fit600 = local_curve_fit(600.0)
+    fit50 = local_curve_fit(50.0, n_seeds=2)
+    fit300 = local_curve_fit(300.0, n_seeds=2)
+    fit1000 = local_curve_fit(1000.0, n_seeds=2)
+    fit150 = local_curve_fit(150.0, n_seeds=2)
+    fit600 = local_curve_fit(600.0, n_seeds=2)
 
     # raw data
     energies50, a_list50 = fit50["energies"], fit50["a_list"]
@@ -115,11 +142,6 @@ if __name__ == '__main__':
     plt.plot(a_plot600, E_plot600, color='Violet', label='local fit T = 50 K')
 
     # mark fitted minima
-    plt.axvline(equil50, color='ForestGreen', linestyle='--', alpha=0.5)
-    plt.axvline(equil300, color='RoyalBlue', linestyle='--', alpha=0.5)
-    plt.axvline(equil1000, color='IndianRed', linestyle='--', alpha=0.5)
-    plt.axvline(equil150, color='Orange', linestyle='--', alpha=0.5)
-    plt.axvline(equil600, color='Violet', linestyle='--', alpha=0.5)
 
     plt.xlabel('Lattice parameter (Å)')
     plt.ylabel('Total Energy (eV)')
@@ -154,8 +176,9 @@ if __name__ == '__main__':
     print(20 * ' ' + f'a / sigma = {equil1000 / sigma:.6f}')
     print(60 * '-')
 
-    plt.plot([50, 150, 300, 600, 1000], [equil50, equil150, equil300, equil600, equil1000], color = 'IndianRed')
-    plt.xlabel(fr'Temperatures ($^\circ K $)')
+    plt.plot([50, 150, 300, 600, 1000], [equil50, equil150, equil300, equil600, equil1000], color = 'IndianRed', marker = 'o')
+    plt.xlabel(fr'Temperatures ($K$)')
     plt.ylabel(fr'Equilibrium Lattice parameter ($Å$)')
     plt.title('Equilibrium Lattice parameter as a function of temperature')
+    plt.savefig('./figs/a_vs_temp.png')
     plt.show()

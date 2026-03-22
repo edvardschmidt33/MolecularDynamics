@@ -117,7 +117,7 @@ if __name__ == '__main__':
     if args.plot:
         plt.scatter(Temps, MSD_list, color = 'IndianRed')
         plt.xlabel('Temperature (K)')
-        plt.ylabel('Mean-Squared Displacement (MSD)')
+        plt.ylabel('Mean-Squared Displacement (MSD) (Å)')
         plt.title(f'MSD over {len(Temps)} temperatures form 100 - 1000 K')
         plt.show()
 
