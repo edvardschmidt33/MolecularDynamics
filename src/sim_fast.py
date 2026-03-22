@@ -15,9 +15,6 @@ k_B = 8.617333262e-5  # eV/K (Global Variable)
 ### Define Box-Muller ###
 @njit
 def box_muller_pair():
-    """
-    Return two independent N(0,1) random numbers using Box-Muller.
-    """
     u1 = np.random.random()
     u2 = np.random.random()
 
@@ -35,9 +32,6 @@ def box_muller_pair():
 
 @njit
 def normal_array_box_muller(nrows, ncols):
-    """
-    Create an array of shape (nrows, ncols) filled with N(0,1) samples.
-    """
     out = np.empty((nrows, ncols), dtype=np.float64)
     total = nrows * ncols
     flat = out.ravel()
@@ -86,8 +80,7 @@ def init_supercell(a, nx = 9, ny= 5, nz = 5):
 
 
 # Ensures periodic boundary conditions 
-# def minimum_image(diff, box):
-#     return diff - box * np.round(diff / box)
+
 
 @njit
 def minimum_image(diff, box):
